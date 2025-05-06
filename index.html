@@ -49,9 +49,17 @@
       line-height: 30px;
       font-size: 20px;
       z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     #pause {
       right: 60px;
+    }
+    #pause svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
     }
     #tooltip {
       position: fixed;
@@ -69,7 +77,15 @@
 </head>
 <body>
   <a id="about" href="#" title="About">?</a>
-  <a id="pause" href="#" title="Pause">⏸</a>
+  <a id="pause" href="#" title="Pause">
+    <svg class="pause-icon" viewBox="0 0 24 24">
+      <rect x="6" y="4" width="4" height="16" rx="1"/>
+      <rect x="14" y="4" width="4" height="16" rx="1"/>
+    </svg>
+    <svg class="play-icon" viewBox="0 0 24 24" style="display: none;">
+      <path d="M8 5v14l11-7z"/>
+    </svg>
+  </a>
   <div id="tooltip"></div>
   <div id="panel">
     <div>
@@ -461,7 +477,10 @@
   pauseBtn.onclick=e=>{
     e.preventDefault()
     isPaused = !isPaused
-    pauseBtn.textContent = isPaused ? '▶' : '⏸'
+    const pauseIcon = pauseBtn.querySelector('.pause-icon')
+    const playIcon = pauseBtn.querySelector('.play-icon')
+    pauseIcon.style.display = isPaused ? 'none' : 'block'
+    playIcon.style.display = isPaused ? 'block' : 'none'
     pauseBtn.title = isPaused ? 'Resume' : 'Pause'
   }
   </script>
