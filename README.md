@@ -1,10 +1,10 @@
-# sonic-drops
+# sonic-warp
 
-Physical real-time simulation of the Sonic network transactions
+A transaction starfield visualizer for the Sonic blockchain
 
 ## About
 
-Live at https://drops.paintoshi.dev
+Live at https://warp.paintoshi.dev
 
 In theory, can be used for any EVM compatible chain by swapping out the RPC.
 
