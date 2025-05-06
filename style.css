@@ -1,0 +1,106 @@
+/* Reset & global settings */
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  font-family: Arial, sans-serif;
+  background: #000;
+}
+
+/* "About" button */
+#about {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  text-decoration: none;
+  z-index: 10;
+}
+
+/* Info panel */
+#panel {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  padding: 2rem;
+  text-align: center;
+  line-height: 1.6;
+  visibility: hidden;
+}
+
+#panel.show {
+  visibility: visible;
+}
+
+/* Stats badge */
+#stats {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  pointer-events: none;
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#tps, #volume {
+  white-space: nowrap;
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  gap: 12px;
+}
+
+#tps::before {
+  content: "TPS";
+}
+
+#volume::before {
+  content: "Volume";
+}
+
+#tps::after, #volume::after {
+  content: attr(data-value);
+  text-align: right;
+}
+
+a:hover{
+  text-decoration:underline;
+  cursor: pointer;
+  color: #5249fa;
+}
+a { color: #453dcf; text-decoration: none;}
+
+#close-button { 
+  padding: 10px 20px;
+  border: 1px solid #453dcf;
+  line-height: 60px;
+  border-radius: 16px;
+}
+
+#close-button:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}

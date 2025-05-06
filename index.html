@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Sonic Warp - Transaction Visualizer</title>
+  <meta name="description" content="A physics visualizer for the Sonic blockchain"/>
+  <meta name="keywords" content="sonic, blockchain, transaction, visualizer, drops, network, tps, volume, tx, crypto, simulation"/>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+
+  <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="shortcut icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="Sonic Warp" />
+  <link rel="manifest" href="/site.webmanifest" />
+
+  <meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="expires" content="0">
+  <meta http-equiv="pragma" content="no-cache">
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Sonic Warp" />
+  <meta name="twitter:image" content="https://warp.paintoshi.dev/og.png" />
+  <meta name="twitter:domain" content="paintoshi.dev" />
+  <meta name="twitter:site" content="@paintoshi" />
+  <meta name="twitter:creator" content="@paintoshi" />
+  <meta name="twitter:description" content="A 2D starfield visualizer for the Sonic blockchain" />
+  <meta property="og:title" content="Sonic Warp" />
+  <meta property="og:description" content="A 2D starfield visualizer for the Sonic blockchain" />
+  <meta property="og:image" content="https://warp.paintoshi.dev/og.png" />
+  <meta property="og:url" content="https://warp.paintoshi.dev" />
+
+  <style>
+    canvas {
+      cursor: pointer;
+    }
+    #about, #pause {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      width: 30px;
+      height: 30px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 50%;
+      color: white;
+      text-decoration: none;
+      text-align: center;
+      line-height: 30px;
+      font-size: 20px;
+      z-index: 1000;
+    }
+    #pause {
+      right: 60px;
+    }
+    #tooltip {
+      position: fixed;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      pointer-events: none;
+      z-index: 1000;
+      display: none;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <a id="about" href="#" title="About">?</a>
+  <a id="pause" href="#" title="Pause">⏸</a>
+  <div id="tooltip"></div>
+  <div id="panel">
+    <div>
+      <h1>Sonic Warp</h1><br>
+      <p>Transactions stream live from the Sonic network via public RPC and are rendered as stars rushing past you in a hyperspace tunnel<br>
+        Star color corresponds to the transaction amount:<br>
+        White: 0 S<br/>
+        Red: 0 - 1 S<br/>
+        Purple: 1 - 1,000 S<br/>
+        Blue: 1,000 - 100,000 S<br/>
+        Green: > 100,000 S<br/><br/>
+      </p>
+      <p><a href="https://github.com/paintoshi/sonic-warp" target="_blank">Github Source</a></p><br/>
+      <a id="close-button">Close</a>
+    </div>
+  </div>
+  <div id="stats">
+    <div id="tps" data-value="0"></div>
+    <div id="volume" data-value="0 S"></div>
+  </div>
+
+  <!-- PixiJS v6.5.8 – synchronous API -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.8/browser/pixi.min.js"></script>
+  <script>
+  /* ========== TUNABLE PARAMETERS ========== */
+  const RPC_URL = 'https://rpc.soniclabs.com'
+  const BLOCK_EXPLORER = 'https://sonicscan.org/tx'
+
+  // Star colour bands (hex)
+  const STAR_COLOURS = {
+    ZERO  : 0xffffff, // white
+    SMALL : 0xff4545, // red
+    MED   : 0xd34ad8, // purple
+    LARGE : 0x5f6fe3, // blue
+    HUGE  : 0x69d45b // green
+  }
+
+  // Base per‑star velocity
+  const STAR_MIN_SPEED      = 0.0001    // pixels / tick baseline
+  const STAR_SPEED_VARIANCE = 0.0005    // random extra speed
+  const TUNNEL_MULTIPLIER   = 1000     // accel as star moves outward
+  const PROGRESSION_RATE    = 0.008    // how quickly stars progress outward
+
+  // Speed scaling versus TPS: 2× at 100 TPS, 10× at 1,000 TPS …
+  // Derived power‑law constants k and a from f(100)=2, f(1000)=10
+  const SPEED_K = 0.08         // k in k * TPS^a
+  const SPEED_A = 0.69897      // a  (≈ log10(5))
+
+  // Engine limits
+  const MAX_POOL   = 250000
+  const TPS_WINDOW = 10000
+
+  /* ========== HELPERS ========== */
+  let pendingRequest = null;
+  const processedBlockHashes = new Set();
+
+  const fetchRPC = async (method, params = []) => {
+    const response = await fetch(RPC_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: Date.now(),
+        method,
+        params
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (data.error) {
+      throw new Error(`RPC error: ${data.error.message}`);
+    }
+
+    return data.result;
+  }
+
+  const getLatestBlocksAndTransactions = async () => {
+    if (pendingRequest) {
+      return null;
+    }
+    
+    try {
+      pendingRequest = true;
+      
+      // First get block number
+      const latest = parseInt(await fetchRPC('eth_blockNumber'), 16);
+      
+      // Always fetch 4 blocks to ensure we don't miss any
+      // This is enough since blocks come every ~2 seconds
+      const batch = [];
+      for (let i = 0; i < 4; i++) {
+        batch.push({
+          jsonrpc: '2.0',
+          id: i,
+          method: 'eth_getBlockByNumber',
+          params: [`0x${(latest - i).toString(16)}`, true]
+        });
+      }
+
+      const res = await fetch(RPC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(batch)
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+
+      const arr = await res.json();
+      const newTransactions = [];
+      let lastProcessedBlock = latest;
+
+      for (const r of arr) {
+        const blk = r.result;
+        if (!blk || processedBlockHashes.has(blk.hash)) continue;
+
+        const blockNumber = parseInt(blk.number, 16);
+        // Ensure we process blocks in order
+        if (blockNumber > lastProcessedBlock) continue;
+        lastProcessedBlock = blockNumber;
+
+        processedBlockHashes.add(blk.hash);
+        if (processedBlockHashes.size > 50) { 
+          const oldestHash = processedBlockHashes.values().next().value;
+          processedBlockHashes.delete(oldestHash);
+        }
+
+        for (const tx of blk.transactions || []) {
+          const amt = parseInt(tx.value, 16) / 1e18;
+          newTransactions.push({
+            hash: tx.hash,
+            amount: amt,
+            sender: tx.from,
+            blockHash: blk.hash,
+            blockNumber: blockNumber
+          });
+        }
+      }
+
+      return newTransactions.length > 0 ? newTransactions : null;
+
+    } catch (e) {
+      console.error('Error fetching blockchain data:', e);
+      return null;
+    } finally {
+      pendingRequest = null;
+    }
+  }
+
+  /* ========== PIXI ========== */
+  const app = new PIXI.Application({background:0x000000,resizeTo:window,antialias:false,powerPreference:'high-performance'})
+  document.body.appendChild(app.view)
+
+  // Create different sized star textures
+  const createStarTexture = (radius, color) => {
+    const g = new PIXI.Graphics();
+    g.beginFill(color);
+    g.drawCircle(0, 0, radius);
+    g.endFill();
+    const texture = app.renderer.generateTexture(g, {
+      resolution: 2,  // Higher resolution for smoother circles
+      scaleMode: PIXI.SCALE_MODES.LINEAR,  // Better scaling
+      multisample: PIXI.MSAA_QUALITY.HIGH  // Better antialiasing
+    });
+    g.destroy();  // Clean up the graphics object
+    return texture;
+  }
+
+  // Create textures for each size and color combination
+  const starTextures = {
+    ZERO: createStarTexture(1, STAR_COLOURS.ZERO),
+    SMALL: createStarTexture(2, STAR_COLOURS.SMALL),
+    MED: createStarTexture(3, STAR_COLOURS.MED),
+    LARGE: createStarTexture(4, STAR_COLOURS.LARGE),
+    HUGE: createStarTexture(5, STAR_COLOURS.HUGE)
+  }
+
+  const stars = new PIXI.Container()
+  app.stage.addChild(stars)
+
+  /* ========== STATE ========== */
+  let pool=[],active=[],txTimes=[],volume=0
+  let isPaused = false
+  let hoveredStar = null  // Track the currently hovered star
+
+  const textureForAmt = amt => amt===0?starTextures.ZERO: amt<1?starTextures.SMALL: amt<=1000?starTextures.MED: amt<=100000?starTextures.LARGE: starTextures.HUGE
+
+  const updateTooltip = (star) => {
+    const tooltip = document.getElementById('tooltip')
+    const rect = app.view.getBoundingClientRect()
+    const starX = star.x + rect.left
+    const starY = star.y + rect.top
+    tooltip.style.left = (starX - tooltip.offsetWidth/2) + 'px'
+    tooltip.style.top = (starY - tooltip.offsetHeight - 10) + 'px'
+  }
+
+  const spawn = ({hash,amount,sender}) => {
+    let s
+    if (pool.length > 0) {
+      s = pool.pop()
+      s.texture = textureForAmt(amount)
+    } else {
+      s = new PIXI.Sprite(textureForAmt(amount))
+    }
+    s.anchor.set(0.5)
+    s.x = app.renderer.width*0.5
+    s.y = app.renderer.height*0.5
+    const ang=Math.random()*Math.PI*2, spd=STAR_MIN_SPEED+Math.random()*STAR_SPEED_VARIANCE
+    s.dx=Math.cos(ang)*spd; s.dy=Math.sin(ang)*spd; s.p=0; s.txHash=hash
+    s.sender = sender
+    s.amount = amount
+    
+    // Make sprite interactive
+    s.eventMode = 'static'
+    s.cursor = 'pointer'
+    s.interactive = true
+    
+    // Add larger hit area
+    s.hitArea = new PIXI.Circle(0, 0, 7)  // 7 pixel radius hit area
+    
+    // Add hover handlers
+    s.on('pointerover', () => {
+      hoveredStar = s
+      const tooltip = document.getElementById('tooltip')
+      tooltip.textContent = `Amount: ${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} S\nFrom: ${sender.slice(0, 6)}...${sender.slice(-4)}`
+      tooltip.style.display = 'block'
+      updateTooltip(s)
+    })
+    
+    s.on('pointermove', () => {
+      if (hoveredStar === s) {
+        updateTooltip(s)
+      }
+    })
+    
+    s.on('pointerout', () => {
+      if (hoveredStar === s) {
+        hoveredStar = null
+        const tooltip = document.getElementById('tooltip')
+        tooltip.style.display = 'none'
+      }
+    })
+    
+    // Add click handler directly to sprite
+    s.on('click', () => {
+      if (s.txHash) {
+        window.open(`${BLOCK_EXPLORER}/${s.txHash}`, '_blank')
+      }
+    })
+    
+    active.push(s); stars.addChild(s)
+  }
+  const recycle=s=>{
+    if (hoveredStar === s) {
+      hoveredStar = null
+      const tooltip = document.getElementById('tooltip')
+      tooltip.style.display = 'none'
+    }
+    stars.removeChild(s)
+    s.texture = null  // Clear the texture
+    s.scale.set(1)
+    s.alpha = 1
+    s.rotation = 0
+    s.dx = 0
+    s.dy = 0
+    s.p = 0
+    s.txHash = null
+    s.sender = null
+    s.amount = null
+    s.eventMode = 'none'
+    s.interactive = false
+    s.hitArea = null
+    pool.push(s)
+  }
+  const calcTPS=()=>{const n=Date.now();txTimes=txTimes.filter(t=>n-t<TPS_WINDOW);return txTimes.length/(TPS_WINDOW / 1000)}
+
+  /* ========== TICK ========== */
+  app.ticker.add(dt=>{
+    if (isPaused) return;
+    
+    const curTPS = calcTPS()
+    const speedMult = Math.max(1, SPEED_K * Math.pow(curTPS, SPEED_A))
+
+    for(let i=active.length-1;i>=0;i--){
+      const s=active[i]
+      const f = dt * speedMult
+      s.x += s.dx * f * (1 + Math.pow(s.p, 2) * TUNNEL_MULTIPLIER)
+      s.y += s.dy * f * (1 + Math.pow(s.p, 2) * TUNNEL_MULTIPLIER)
+      s.p += PROGRESSION_RATE * dt * speedMult
+      if(s.x<-50||s.x>app.renderer.width+50||s.y<-50||s.y>app.renderer.height+50){active.splice(i,1);recycle(s)}
+    }
+
+    document.getElementById('tps').setAttribute('data-value', Math.round(curTPS))
+    document.getElementById('volume').setAttribute('data-value', `${Math.round(volume).toLocaleString('en-US')} S`)
+  })
+
+  /* ========== POLL ========== */
+  let isPolling = true;
+
+  const poll = async () => {
+    if (!isPolling) return;
+
+    const transactions = await getLatestBlocksAndTransactions();
+    if (transactions) {
+      for (const tx of transactions) {
+        spawn(tx);
+        volume += tx.amount;
+        txTimes.push(Date.now());
+      }
+    }
+
+    // Fixed polling interval of 600ms is appropriate since blocks come every ~2 seconds
+    setTimeout(poll, 600);
+  }
+
+  poll();
+
+  // Cleanup function for when needed
+  const stopPolling = () => {
+    isPolling = false;
+  }
+
+  /* ========== PANEL ========== */
+  const aboutBtn=document.getElementById('about'),panel=document.getElementById('panel'),closeBtn=document.getElementById('close-button')
+  const pauseBtn=document.getElementById('pause')
+  aboutBtn.onclick=e=>{e.preventDefault();panel.classList.add('show')}
+  closeBtn.onclick=()=>panel.classList.remove('show')
+  pauseBtn.onclick=e=>{
+    e.preventDefault()
+    isPaused = !isPaused
+    pauseBtn.textContent = isPaused ? '▶' : '⏸'
+    pauseBtn.title = isPaused ? 'Resume' : 'Pause'
+  }
+  </script>
+</body>
+</html>
