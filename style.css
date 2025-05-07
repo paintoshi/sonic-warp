@@ -10,6 +10,10 @@ body {
   overflow: hidden;
   font-family: Arial, sans-serif;
   background: #010b15;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
 }
 
 /* "About" button */
@@ -158,4 +162,52 @@ a { color: #453dcf; text-decoration: none;}
 
 #close-button:hover {
   background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Additional styles from index.html */
+canvas {
+  cursor: pointer;
+  background: #010b15;
+}
+
+#about, #pause {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 30px;
+  height: 30px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  color: white;
+  text-decoration: none;
+  text-align: center;
+  line-height: 30px;
+  font-size: 20px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#pause {
+  right: 60px;
+}
+
+#pause svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+#tooltip {
+  position: fixed;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  pointer-events: none;
+  z-index: 1000;
+  display: none;
+  white-space: nowrap;
 }
