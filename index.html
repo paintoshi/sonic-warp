@@ -103,6 +103,14 @@
     return 0.6
   }
 
+  // Calculate warmup time based on TPS
+  const getWarmupTime = (tps) => {
+    // Using a power function to create smooth curve
+    if (tps <= 800) return Math.max(0, 2000 * Math.pow(1 - (tps / 10000), 5))
+    if (tps <= 1000) return Math.max(0, 2000 * Math.pow(1 - (tps / 10000), 10))
+    return Math.max(0, 2000 * Math.pow(1 - (tps / 10000), 12))
+  }
+
   // Engine limits
   const MAX_POOL   = 250000
   const TPS_WINDOW = 10000
@@ -454,7 +462,8 @@
       // Helps them gain velocity before they're visible
       const now = Date.now()
       if (s.isWarmingUp) {
-        if (now - s.spawnTime >= 2000) {  // 2 seconds warmup
+        const warmupTime = getWarmupTime(curTPS)
+        if (now - s.spawnTime >= warmupTime) {
           s.isWarmingUp = false
           s.alpha = 0.1  // Start with slight opacity
         } else {
