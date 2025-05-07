@@ -76,6 +76,7 @@
   const MAX_QUEUE_TIME = 5000  // Maximum queue time in milliseconds
   const TARGET_SPAWN_RATE = 100  // Target spawns per second
   const MIN_SPAWN_INTERVAL = 1000 / TARGET_SPAWN_RATE  // Minimum time between spawns
+  const SPAWN_RADIUS = 0.2
 
   // Star colour bands (hex)
   const STAR_COLOURS = {
@@ -87,8 +88,8 @@
   }
 
   // Base per‑star velocity
-  const STAR_MIN_SPEED      = 0.0001    // pixels / tick baseline (10x slower)
-  const STAR_SPEED_VARIANCE = 0.0005    // random extra speed (10x slower)
+  const STAR_MIN_SPEED      = 0.00001    // pixels / tick baseline (10x slower)
+  const STAR_SPEED_VARIANCE = 0.00005    // random extra speed (10x slower)
   const TUNNEL_MULTIPLIER   = 1000      // accel as star moves outward
   const PROGRESSION_RATE    = 0.008     // how quickly stars progress outward (10x slower)
   const MAX_FADE_AMOUNT     = 1         // maximum fade amount
@@ -236,10 +237,10 @@
   // Create textures for each size and color combination
   const starTextures = {
     ZERO: createStarTexture(2, STAR_COLOURS.ZERO),
-    SMALL: createStarTexture(4, STAR_COLOURS.SMALL),
-    MED: createStarTexture(6, STAR_COLOURS.MED),
-    LARGE: createStarTexture(8, STAR_COLOURS.LARGE),
-    HUGE: createStarTexture(10, STAR_COLOURS.HUGE)
+    SMALL: createStarTexture(3, STAR_COLOURS.SMALL),
+    MED: createStarTexture(4, STAR_COLOURS.MED),
+    LARGE: createStarTexture(6, STAR_COLOURS.LARGE),
+    HUGE: createStarTexture(8, STAR_COLOURS.HUGE)
   }
 
   const stars = new PIXI.Container()
@@ -251,10 +252,16 @@
   let hoveredStar = null  // Track the currently hovered star
   let txQueue = []        // Queue for transactions
   let lastSpawnTime = 0   // Track last spawn time for rate limiting
+  let lastTooltipUpdate = 0  // Track last tooltip update time
+  const TOOLTIP_UPDATE_INTERVAL = 16  // ~60fps
 
   const textureForAmt = amt => amt===0?starTextures.ZERO: amt<1?starTextures.SMALL: amt<=1000?starTextures.MED: amt<=100000?starTextures.LARGE: starTextures.HUGE
 
   const updateTooltip = (star) => {
+    const now = Date.now()
+    if (now - lastTooltipUpdate < TOOLTIP_UPDATE_INTERVAL) return
+    lastTooltipUpdate = now
+
     const tooltip = document.getElementById('tooltip')
     const rect = app.view.getBoundingClientRect()
     const starX = star.x + rect.left
@@ -262,6 +269,28 @@
     tooltip.style.left = (starX - tooltip.offsetWidth/2) + 'px'
     tooltip.style.top = (starY - tooltip.offsetHeight - 10) + 'px'
   }
+
+  // Global mouse move handler
+  app.view.addEventListener('mousemove', (e) => {
+    if (!hoveredStar) return
+    
+    const rect = app.view.getBoundingClientRect()
+    const mouseX = e.clientX - rect.left
+    const mouseY = e.clientY - rect.top
+    
+    // Check if mouse is still over the star
+    const dx = mouseX - hoveredStar.x
+    const dy = mouseY - hoveredStar.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    
+    if (distance > 15) { // 15 is the hit area radius
+      hoveredStar = null
+      const tooltip = document.getElementById('tooltip')
+      tooltip.style.display = 'none'
+    } else {
+      updateTooltip(hoveredStar)
+    }
+  })
 
   const spawn = ({hash,amount,sender}) => {
     let s
@@ -272,14 +301,40 @@
       s = new PIXI.Sprite(textureForAmt(amount))
     }
     s.anchor.set(0.5)
-    s.x = app.renderer.width*0.5
-    s.y = app.renderer.height*0.5
-    const ang=Math.random()*Math.PI*2, spd=STAR_MIN_SPEED+Math.random()*STAR_SPEED_VARIANCE
-    s.dx=Math.cos(ang)*spd; s.dy=Math.sin(ang)*spd; s.p=0; s.txHash=hash
+    
+    // Calculate spawn area
+    const spawnRadius = Math.min(app.renderer.width, app.renderer.height) * SPAWN_RADIUS // 30% of smaller dimension
+    const centerX = app.renderer.width * 0.5
+    const centerY = app.renderer.height * 0.5
+    
+    // Random angle and distance within spawn area
+    const angle = Math.random() * Math.PI * 2
+    const distance = Math.random() * spawnRadius
+    
+    // Set initial position
+    s.x = centerX + Math.cos(angle) * distance
+    s.y = centerY + Math.sin(angle) * distance
+    
+    // Calculate initial speed based on current TPS
+    const curTPS = calcTPS()
+    const speedMult = Math.max(1, SPEED_K * Math.pow(curTPS, getSpeedExponent(curTPS)))
+    
+    // Base speed is now higher and scales with distance from center
+    const baseSpeed = STAR_MIN_SPEED * 5 + Math.random() * STAR_SPEED_VARIANCE * 5
+    const distanceFactor = distance / spawnRadius // 0 to 1 based on spawn distance
+    const initialSpeed = baseSpeed * (1 + distanceFactor) * speedMult
+    
+    // Set initial velocity
+    s.dx = Math.cos(angle) * initialSpeed
+    s.dy = Math.sin(angle) * initialSpeed
+    s.p = 0
+    s.txHash = hash
     s.sender = sender
     s.amount = amount
     s.originalScale = 1  // Store original scale for blur effect
     s.trail = []  // Store previous positions for trail effect
+    s.spawnTime = Date.now()  // Track when the star was spawned
+    s.isWarmingUp = true  // Flag to track warmup state
     
     // Make sprite interactive
     s.eventMode = 'static'
@@ -287,19 +342,15 @@
     s.interactive = true
     
     // Add larger hit area
-    s.hitArea = new PIXI.Circle(0, 0, 7)  // 7 pixel radius hit area
+    s.hitArea = new PIXI.Circle(0, 0, 15)  // 15 pixel radius hit area
     
-    // Add hover handlers
+    // Add hover handlers - only pointerover and pointerout
     s.on('pointerover', () => {
-      hoveredStar = s
-      const tooltip = document.getElementById('tooltip')
-      tooltip.textContent = `Amount: ${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} S\nFrom: ${sender.slice(0, 6)}...${sender.slice(-4)}`
-      tooltip.style.display = 'block'
-      updateTooltip(s)
-    })
-    
-    s.on('pointermove', () => {
-      if (hoveredStar === s) {
+      if (!s.isWarmingUp) {  // Only show tooltip if not warming up
+        hoveredStar = s
+        const tooltip = document.getElementById('tooltip')
+        tooltip.textContent = `Amount: ${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} S\nFrom: ${sender.slice(0, 6)}...${sender.slice(-4)}`
+        tooltip.style.display = 'block'
         updateTooltip(s)
       }
     })
@@ -314,7 +365,7 @@
     
     // Add click handler directly to sprite
     s.on('click', () => {
-      if (s.txHash) {
+      if (s.txHash && !s.isWarmingUp) {  // Only allow clicks if not warming up
         window.open(`${BLOCK_EXPLORER}/${s.txHash}`, '_blank')
       }
     })
@@ -399,6 +450,19 @@
       s.y += s.dy * f * (1 + Math.pow(s.p, 2) * TUNNEL_MULTIPLIER)
       s.p += PROGRESSION_RATE * dt * speedMult
 
+      // Check if star is still in warmup period
+      // Helps them gain velocity before they're visible
+      const now = Date.now()
+      if (s.isWarmingUp) {
+        if (now - s.spawnTime >= 2000) {  // 2 seconds warmup
+          s.isWarmingUp = false
+          s.alpha = 0.1  // Start with slight opacity
+        } else {
+          s.alpha = 0  // Keep invisible during warmup
+          continue  // Skip the rest of the update for this star
+        }
+      }
+
       // Calculate effect based on position
       if (s.p > 0.1) {
         const angle = Math.atan2(s.dy, s.dx)
@@ -415,21 +479,29 @@
         // Calculate max distance (half of screen width/height + margin)
         const maxDistance = Math.max(app.renderer.width, app.renderer.height) / 2 + SCREEN_MARGIN
         
-        // Start fading immediately and reach max at 65%
+        // Start fading from spawn area edge
+        const spawnRadius = Math.min(app.renderer.width, app.renderer.height) * SPAWN_RADIUS
+        const fadeStartDistance = spawnRadius
         const fadeEndDistance = maxDistance * 0.65
+        
+        // Calculate spawn area opacity factor (0 to 1)
+        const spawnAreaFactor = Math.min(1, distanceFromCenter / spawnRadius)
+        
+        // Calculate fade factor based on distance from spawn area
         const fadeFactor = Math.min(1, Math.max(0, 
-          distanceFromCenter / fadeEndDistance
+          (distanceFromCenter - fadeStartDistance) / (fadeEndDistance - fadeStartDistance)
         ))
         
         // Use ease-out curve (1 - (1-x)²) for smoother transition
         const easeOutFactor = 1 - Math.pow(1 - fadeFactor, 2)
         
-        // Reverse the fade effect - start faint and get more opaque
-        s.alpha = 0.4 + (easeOutFactor * MAX_FADE_AMOUNT)
+        // Start with increasing opacity in spawn area, then fade in
+        const spawnOpacity = 0.1 + (spawnAreaFactor * 0.25) // 0.1 to 0.25 in spawn area
+        s.alpha = spawnOpacity + (easeOutFactor * (MAX_FADE_AMOUNT - spawnOpacity))
         
         // Calculate size scaling - grow from 0 to full size
         const sizeFactor = Math.min(1, distanceFromCenter / maxDistance)
-        const sizeScale = 0.3 + (sizeFactor * 0.9) // Start at 30% size and grow to 100%
+        const sizeScale = 0.15 + (sizeFactor * 0.9) // Start at 15% size and grow to 100%
         
         // Apply size scaling
         s.scale.set(s.originalScale * sizeScale)
@@ -437,8 +509,8 @@
         // Add slight rotation based on movement direction
         s.rotation = angle + Math.PI/2
       } else {
-        s.alpha = 0.4  // Start with higher opacity
-        s.scale.set(s.originalScale * 0.3)  // Start at 30% size
+        s.alpha = 0.1  // Start with slight opacity
+        s.scale.set(s.originalScale * 0.15)  // Start at 15% size
         s.rotation = 0
       }
 

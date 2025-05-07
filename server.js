@@ -6,7 +6,7 @@ app.use(cors());
 app.use(express.json());
 
 // Configuration
-const TPS = 600; // Transactions per second - adjust this to test different rates
+const TPS = 100; // Transactions per second - adjust this to test different rates
 const BLOCK_TIME = 500; // 500ms per block (2 blocks per second)
 const TXS_PER_BLOCK = Math.ceil(TPS * (BLOCK_TIME / 1000));
 
@@ -21,18 +21,22 @@ function generateRandomAmount() {
         return 0;
     }
 
-    // For non-zero amounts, use exponential distribution
-    // This will favor smaller amounts
-    const lambda = 0.0001; // Controls the rate of decay
-    const maxAmount = 100000;
+    // For non-zero amounts, use a mix of distributions
+    const r = Math.random();
     
-    // Generate exponential random variable
-    let amount = -Math.log(Math.random()) / lambda;
-    
-    // Scale and cap the amount
-    amount = Math.min(amount, maxAmount);
-    
-    return amount;
+    if (r < 0.4) {
+        // 40% chance of red star range (0-2 S)
+        return Math.random() * 2;
+    } else if (r < 0.7) {
+        // 30% chance of purple star range (2-1000 S)
+        return 2 + Math.random() * 998;
+    } else if (r < 0.9) {
+        // 20% chance of blue star range (1000-100000 S)
+        return 1000 + Math.random() * 99000;
+    } else {
+        // 10% chance of green star range (>100000 S)
+        return 100000 + Math.random() * 900000;
+    }
 }
 
 function generateRandomAddress() {

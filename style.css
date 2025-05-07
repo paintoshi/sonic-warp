@@ -41,7 +41,7 @@ body {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(1, 11, 21, 0.8);
+  background: rgba(1, 11, 21, 0.9);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -67,16 +67,6 @@ body {
   text-align: center;
 }
 
-@media (max-width: 768px) {
-  #panel > div {
-    padding: 40px;
-    font-size: 14px;
-  }
-  #panel > div h1 {
-    font-size: 24px;
-  }
-}
-
 #panel > div::before {
   content: '';
   position: absolute;
@@ -90,6 +80,16 @@ body {
   background-repeat: no-repeat;
   opacity: 0.2;
   z-index: -1;
+}
+
+@media (max-width: 768px) {
+  #panel > div {
+    padding: 40px;
+    font-size: 14px;
+  }
+  #panel > div h1 {
+    font-size: 24px;
+  }
 }
 
 /* Stats badge */
@@ -164,12 +164,6 @@ a { color: #453dcf; text-decoration: none;}
   background-color: rgba(255, 255, 255, 0.05);
 }
 
-/* Additional styles from index.html */
-canvas {
-  cursor: pointer;
-  background: #010b15;
-}
-
 #about, #pause {
   position: fixed;
   top: 20px;
@@ -207,7 +201,11 @@ canvas {
   border-radius: 4px;
   font-size: 14px;
   pointer-events: none;
-  z-index: 1000;
   display: none;
   white-space: nowrap;
+}
+
+/* Additional styles from index.html */
+canvas {
+  background: #010b15;
 }
