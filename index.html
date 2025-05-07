@@ -121,7 +121,14 @@
   <script>
   /* ========== TUNABLE PARAMETERS ========== */
   const RPC_URL = 'https://rpc.soniclabs.com'
+  // const RPC_URL = 'http://localhost:3000'
   const BLOCK_EXPLORER = 'https://sonicscan.org/tx'
+
+  // Queue system settings
+  const USE_QUEUE = true  // Toggle queue system on/off
+  const MAX_QUEUE_TIME = 5000  // Maximum queue time in milliseconds
+  const TARGET_SPAWN_RATE = 100  // Target spawns per second
+  const MIN_SPAWN_INTERVAL = 1000 / TARGET_SPAWN_RATE  // Minimum time between spawns
 
   // Star colour bands (hex)
   const STAR_COLOURS = {
@@ -133,17 +140,20 @@
   }
 
   // Base per‑star velocity
-  const STAR_MIN_SPEED      = 0.0001    // pixels / tick baseline
-  const STAR_SPEED_VARIANCE = 0.0005    // random extra speed
+  const STAR_MIN_SPEED      = 0.0001    // pixels / tick baseline (10x slower)
+  const STAR_SPEED_VARIANCE = 0.0005    // random extra speed (10x slower)
   const TUNNEL_MULTIPLIER   = 1000     // accel as star moves outward
-  const PROGRESSION_RATE    = 0.008    // how quickly stars progress outward
+  const PROGRESSION_RATE    = 0.008    // how quickly stars progress outward (10x slower)
   const MAX_FADE_AMOUNT     = 1        // maximum fade amount
   const SCREEN_MARGIN       = 100      // how far off screen before removal
 
-  // Speed scaling versus TPS: 2× at 100 TPS, 10× at 1,000 TPS …
-  // Derived power‑law constants k and a from f(100)=2, f(1000)=10
-  const SPEED_K = 0.08         // k in k * TPS^a
-  const SPEED_A = 0.69897      // a  (≈ log10(5))
+  // Speed scaling versus TPS: Different scaling factors for different TPS ranges
+  const SPEED_K = 0.12         // k in k * TPS^a
+  const getSpeedExponent = (tps) => {
+    if (tps <= 800) return 0.43
+    if (tps <= 3000) return 0.53
+    return 0.6
+  }
 
   // Engine limits
   const MAX_POOL   = 250000
@@ -292,6 +302,8 @@
   let pool=[],active=[],txTimes=[],volume=0
   let isPaused = false
   let hoveredStar = null  // Track the currently hovered star
+  let txQueue = []        // Queue for transactions
+  let lastSpawnTime = 0   // Track last spawn time for rate limiting
 
   const textureForAmt = amt => amt===0?starTextures.ZERO: amt<1?starTextures.SMALL: amt<=1000?starTextures.MED: amt<=100000?starTextures.LARGE: starTextures.HUGE
 
@@ -362,6 +374,34 @@
     
     active.push(s); stars.addChild(s)
   }
+
+  const processQueue = () => {
+    const now = Date.now()
+    const queueAge = now - lastSpawnTime
+    const queueLength = txQueue.length
+
+    // Calculate how many transactions we should process this frame
+    let spawnCount = 1
+    if (queueLength > 0) {
+      // If queue is getting too long, increase spawn rate
+      const queueTime = queueLength * MIN_SPAWN_INTERVAL
+      if (queueTime > MAX_QUEUE_TIME) {
+        // Calculate how many we need to spawn to maintain 5s queue
+        spawnCount = Math.ceil(queueTime / MAX_QUEUE_TIME)
+      }
+    }
+
+    // Spawn the calculated number of transactions
+    for (let i = 0; i < spawnCount && txQueue.length > 0; i++) {
+      const tx = txQueue.shift()
+      spawn(tx)
+      volume += tx.amount
+      txTimes.push(now)
+    }
+
+    lastSpawnTime = now
+  }
+
   const recycle=s=>{
     if (hoveredStar === s) {
       hoveredStar = null
@@ -393,7 +433,12 @@
     if (isPaused) return;
     
     const curTPS = calcTPS()
-    const speedMult = Math.max(1, SPEED_K * Math.pow(curTPS, SPEED_A))
+    const speedMult = Math.max(1, SPEED_K * Math.pow(curTPS, getSpeedExponent(curTPS)))
+
+    // Process queue if enabled
+    if (USE_QUEUE) {
+      processQueue()
+    }
 
     for(let i=active.length-1;i>=0;i--){
       const s=active[i]
@@ -466,10 +511,16 @@
 
     const transactions = await getLatestBlocksAndTransactions();
     if (transactions) {
-      for (const tx of transactions) {
-        spawn(tx);
-        volume += tx.amount;
-        txTimes.push(Date.now());
+      if (USE_QUEUE) {
+        // Add transactions to queue
+        txQueue.push(...transactions)
+      } else {
+        // Spawn immediately (old behavior)
+        for (const tx of transactions) {
+          spawn(tx);
+          volume += tx.amount;
+          txTimes.push(Date.now());
+        }
       }
     }
 
