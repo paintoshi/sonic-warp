@@ -5,10 +5,32 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Gradually increase TPS from 0 to 10000 over 60 seconds with slower initial ramp-up
+let currentTPS = 0;
+const targetTPS = 2500;
+const initialDelay = 5000; // 5 seconds initial delay
+const rampUpDuration = 30000; // 30 seconds total
+const startTime = Date.now();
+
+// Update TPS and TXS_PER_BLOCK every 100ms
+setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    if (elapsed < initialDelay) {
+        currentTPS = 0; // Keep TPS at 0 during initial delay
+    } else if (elapsed < initialDelay + rampUpDuration) {
+        // Use a quadratic curve for slower initial ramp-up, adjusted for the delay
+        const progress = (elapsed - initialDelay) / rampUpDuration;
+        currentTPS = targetTPS * (progress * progress * progress);
+    } else {
+        currentTPS = targetTPS;
+    }
+    currentTPS = currentTPS
+    currentTPS = 500 // Comment out this to use ramp up function
+}, 100);
+
 // Configuration
-const TPS = 100; // Transactions per second - adjust this to test different rates
 const BLOCK_TIME = 500; // 500ms per block (2 blocks per second)
-const TXS_PER_BLOCK = Math.ceil(TPS * (BLOCK_TIME / 1000));
+// TXS_PER_BLOCK will be calculated dynamically in generateBlock
 
 // State
 let currentBlockNumber = 1000000;
@@ -48,6 +70,9 @@ function generateRandomHash() {
 }
 
 function generateBlock(blockNumber) {
+    // Calculate TXS_PER_BLOCK dynamically based on current TPS
+    const TXS_PER_BLOCK = Math.ceil(currentTPS * (BLOCK_TIME / 1000));
+    
     // Check if block is already in cache
     const cachedBlock = blockCache.get(blockNumber);
     if (cachedBlock) {
@@ -183,7 +208,6 @@ setInterval(() => {
 const PORT = 3000;
 app.listen(PORT, () => {
     console.log(`Mock RPC server running at http://localhost:${PORT}`);
-    console.log(`Current TPS: ${TPS}`);
-    console.log(`Transactions per block: ${TXS_PER_BLOCK}`);
+    console.log(`Current TPS: ${currentTPS}`);
     console.log(`Block time: ${BLOCK_TIME}ms`);
 }); 

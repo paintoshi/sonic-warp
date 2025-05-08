@@ -71,6 +71,30 @@
   // const RPC_URL = 'http://localhost:3000'
   const BLOCK_EXPLORER = 'https://sonicscan.org/tx'
 
+  // Feature flags
+  const ENABLE_TOOLTIPS = true      // Enable tooltips and click events
+  const ENABLE_WARMUP = true        // Enable warmup functionality
+  const ENABLE_ROTATION = true      // Enable star rotation
+  const ENABLE_SCALING = true       // Enable star size scaling
+  const ENABLE_FADE = true          // Enable star fade effect
+  const ENABLE_ANTIALIAS = true     // Enable antialiasing
+  const ENABLE_HIGH_RES = true      // Enable high resolution textures
+  const ENABLE_TX_PROCESSING = true // Enable transaction processing
+  const ENABLE_RPC_POLLING = true   // Enable RPC polling
+  const MAX_BLOCKS_PER_POLL = 4     // Maximum number of blocks to process per poll
+  const POLL_INTERVAL = 600         // Polling interval in milliseconds
+
+  // Star management settings
+  const CLEANUP_INTERVAL = 1000           // How often to force cleanup (ms)
+  const DEBUG_STAR_COUNT = true           // Log star counts for debugging
+  const MAX_QUEUE_SIZE = 100000           // Maximum size transaction queue
+  const MIN_QUEUE_TIME = 5000              // Minimum queue time in milliseconds (5 seconds)
+  const MAX_TPS = 2500                    // Maximum spawn rate
+  const QUEUE_PROCESS_RATE = 500          // Base number of transactions to process per frame
+  const MAX_PROCESS_PER_FRAME = 2000      // Maximum transactions to process in one frame
+  const QUEUE_CLEANUP_INTERVAL = 5000     // How often to check queue size (ms)
+  const STAR_COUNT_INTERVAL = 5000        // Log star count every second
+
   // Queue system settings
   const USE_QUEUE = true  // Toggle queue system on/off
   const MAX_QUEUE_TIME = 5000  // Maximum queue time in milliseconds
@@ -98,8 +122,10 @@
   // Speed scaling versus TPS: Different scaling factors for different TPS ranges
   const SPEED_K = 0.12         // k in k * TPS^a
   const getSpeedExponent = (tps) => {
-    if (tps <= 800) return 0.43
-    if (tps <= 3000) return 0.53
+    if (tps <= 400) return 0.30
+    if (tps <= 800) return 0.40
+    if (tps <= 2000) return 0.43
+    if (tps <= 3000) return 0.46
     return 0.6
   }
 
@@ -112,8 +138,10 @@
   }
 
   // Engine limits
-  const MAX_POOL   = 250000
-  const TPS_WINDOW = 10000
+  const MAX_POOL   = 100000
+  const TPS_WINDOW = 10000         // 10 second window for UI TPS display
+  const TPS_UPDATE_INTERVAL = 100  // Update TPS more frequently (100ms)
+  const TPS_SAMPLE_SIZE = 10000  // Maximum number of timestamps to store
 
   /* ========== HELPERS ========== */
   let pendingRequest = null;
@@ -143,8 +171,15 @@
     return data.result;
   }
 
+  // Add RPC TPS tracking
+  let rpcTxTimes = []  // Track all incoming transactions from RPC
+  let trueTPS = 0      // True TPS from RPC (10s rolling average)
+  let lastTrueTPSUpdate = 0  // Track last true TPS update
+  let spawnTPS = 0     // TPS used for animation control (capped at MAX_TPS)
+  let startTime = Date.now()  // Track when we started
+
   const getLatestBlocksAndTransactions = async () => {
-    if (pendingRequest) {
+    if (pendingRequest || !ENABLE_RPC_POLLING) {
       return null;
     }
     
@@ -154,10 +189,10 @@
       // First get block number
       const latest = parseInt(await fetchRPC('eth_blockNumber'), 16);
       
-      // Always fetch 4 blocks to ensure we don't miss any
-      // This is enough since blocks come every ~2 seconds
+      // Limit number of blocks to process
+      const blocksToFetch = Math.min(MAX_BLOCKS_PER_POLL, 4);
       const batch = [];
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < blocksToFetch; i++) {
         batch.push({
           jsonrpc: '2.0',
           id: i,
@@ -195,16 +230,44 @@
           processedBlockHashes.delete(oldestHash);
         }
 
-        for (const tx of blk.transactions || []) {
-          const amt = parseInt(tx.value, 16) / 1e18;
-          newTransactions.push({
-            hash: tx.hash,
-            amount: amt,
-            sender: tx.from,
-            blockHash: blk.hash,
-            blockNumber: blockNumber
-          });
+        if (ENABLE_TX_PROCESSING) {
+          // Track all incoming transactions for true TPS
+          const now = Date.now()
+          for (const tx of blk.transactions || []) {
+            rpcTxTimes.push(now)
+          }
+
+          // Skip adding new transactions if queue is at max size
+          if (txQueue.length >= MAX_QUEUE_SIZE) {
+            console.warn('Queue at max size, dropping new transactions')
+            break
+          }
+          
+          for (const tx of blk.transactions || []) {
+            const amt = parseInt(tx.value, 16) / 1e18;
+            newTransactions.push({
+              hash: tx.hash,
+              amount: amt,
+              sender: tx.from,
+              blockHash: blk.hash,
+              blockNumber: blockNumber
+            });
+          }
         }
+      }
+
+      // Update true TPS calculation
+      const now = Date.now()
+      if (now - lastTrueTPSUpdate >= TPS_UPDATE_INTERVAL) {
+        // Keep only transactions from the last 10 seconds
+        const cutoff = now - TPS_WINDOW
+        while (rpcTxTimes.length > 0 && rpcTxTimes[0] < cutoff) {
+          rpcTxTimes.shift()
+        }
+        
+        // Calculate TPS based on transactions in the last 10 seconds
+        trueTPS = rpcTxTimes.length / (TPS_WINDOW / 1000)
+        lastTrueTPSUpdate = now
       }
 
       return newTransactions.length > 0 ? newTransactions : null;
@@ -221,7 +284,7 @@
   const app = new PIXI.Application({
     backgroundColor: 0x010b15,
     resizeTo: window,
-    antialias: false,
+    antialias: ENABLE_ANTIALIAS,
     powerPreference: 'high-performance',
     clearBeforeRender: true
   })
@@ -234,7 +297,7 @@
     g.drawCircle(0, 0, radius);
     g.endFill();
     const texture = app.renderer.generateTexture(g, {
-      resolution: 2,  // Higher resolution for smoother circles
+      resolution: ENABLE_HIGH_RES ? 2 : 1,  // Higher resolution for smoother circles
       scaleMode: PIXI.SCALE_MODES.LINEAR,  // Better scaling
       multisample: PIXI.MSAA_QUALITY.HIGH  // Better antialiasing
     });
@@ -261,7 +324,13 @@
   let txQueue = []        // Queue for transactions
   let lastSpawnTime = 0   // Track last spawn time for rate limiting
   let lastTooltipUpdate = 0  // Track last tooltip update time
+  let lastCleanupTime = 0    // Track last cleanup time
   const TOOLTIP_UPDATE_INTERVAL = 16  // ~60fps
+
+  let lastTPSUpdate = 0  // Track last TPS update time
+  let currentTPS = 0     // Current TPS value
+
+  let lastStarCountLog = 0  // Track last star count log time
 
   const textureForAmt = amt => amt===0?starTextures.ZERO: amt<1?starTextures.SMALL: amt<=1000?starTextures.MED: amt<=100000?starTextures.LARGE: starTextures.HUGE
 
@@ -300,7 +369,36 @@
     }
   })
 
+  // Debug function to log star counts
+  const logStarCounts = () => {
+    if (DEBUG_STAR_COUNT) {
+      const now = Date.now()
+      if (now - lastStarCountLog >= STAR_COUNT_INTERVAL) {
+        console.log(`Active stars: ${active.length}, Pool size: ${pool.length}, Queue: ${txQueue.length}`)
+        lastStarCountLog = now
+      }
+    }
+  }
+
+  // Force cleanup of off-screen stars
+  const forceCleanup = () => {
+    const now = Date.now()
+    if (now - lastCleanupTime < CLEANUP_INTERVAL) return
+    lastCleanupTime = now
+
+    for (let i = active.length - 1; i >= 0; i--) {
+      const s = active[i]
+      if (s.x < -SCREEN_MARGIN || s.x > app.renderer.width + SCREEN_MARGIN ||
+          s.y < -SCREEN_MARGIN || s.y > app.renderer.height + SCREEN_MARGIN) {
+        active.splice(i, 1)
+        recycle(s)
+      }
+    }
+    logStarCounts()
+  }
+
   const spawn = ({hash,amount,sender}) => {
+    // Remove the active stars limit check - we want to process as many as possible
     let s
     if (pool.length > 0) {
       s = pool.pop()
@@ -311,7 +409,7 @@
     s.anchor.set(0.5)
     
     // Calculate spawn area
-    const spawnRadius = Math.min(app.renderer.width, app.renderer.height) * SPAWN_RADIUS // 30% of smaller dimension
+    const spawnRadius = Math.min(app.renderer.width, app.renderer.height) * SPAWN_RADIUS
     const centerX = app.renderer.width * 0.5
     const centerY = app.renderer.height * 0.5
     
@@ -329,7 +427,7 @@
     
     // Base speed is now higher and scales with distance from center
     const baseSpeed = STAR_MIN_SPEED * 5 + Math.random() * STAR_SPEED_VARIANCE * 5
-    const distanceFactor = distance / spawnRadius // 0 to 1 based on spawn distance
+    const distanceFactor = distance / spawnRadius
     const initialSpeed = baseSpeed * (1 + distanceFactor) * speedMult
     
     // Set initial velocity
@@ -339,62 +437,88 @@
     s.txHash = hash
     s.sender = sender
     s.amount = amount
-    s.originalScale = 1  // Store original scale for blur effect
-    s.trail = []  // Store previous positions for trail effect
-    s.spawnTime = Date.now()  // Track when the star was spawned
-    s.isWarmingUp = true  // Flag to track warmup state
+    s.originalScale = 1
+    s.spawnTime = Date.now()
+    s.isWarmingUp = ENABLE_WARMUP
     
     // Make sprite interactive
-    s.eventMode = 'static'
-    s.cursor = 'pointer'
-    s.interactive = true
+    s.eventMode = ENABLE_TOOLTIPS ? 'static' : 'none'
+    s.cursor = ENABLE_TOOLTIPS ? 'pointer' : 'default'
+    s.interactive = ENABLE_TOOLTIPS
     
     // Add larger hit area
-    s.hitArea = new PIXI.Circle(0, 0, 15)  // 15 pixel radius hit area
+    s.hitArea = ENABLE_TOOLTIPS ? new PIXI.Circle(0, 0, 15) : null
     
-    // Add hover handlers - only pointerover and pointerout
-    s.on('pointerover', () => {
-      if (!s.isWarmingUp) {  // Only show tooltip if not warming up
-        hoveredStar = s
-        const tooltip = document.getElementById('tooltip')
-        tooltip.textContent = `Amount: ${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} S\nFrom: ${sender.slice(0, 6)}...${sender.slice(-4)}`
-        tooltip.style.display = 'block'
-        updateTooltip(s)
-      }
-    })
+    // Add hover handlers
+    if (ENABLE_TOOLTIPS) {
+      s.on('pointerover', () => {
+        if (!s.isWarmingUp) {
+          hoveredStar = s
+          const tooltip = document.getElementById('tooltip')
+          tooltip.textContent = `Amount: ${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} S\nFrom: ${sender.slice(0, 6)}...${sender.slice(-4)}`
+          tooltip.style.display = 'block'
+          updateTooltip(s)
+        }
+      })
+      
+      s.on('pointerout', () => {
+        if (hoveredStar === s) {
+          hoveredStar = null
+          const tooltip = document.getElementById('tooltip')
+          tooltip.style.display = 'none'
+        }
+      })
+      
+      s.on('click', () => {
+        if (s.txHash && !s.isWarmingUp) {
+          window.open(`${BLOCK_EXPLORER}/${s.txHash}`, '_blank')
+        }
+      })
+    }
     
-    s.on('pointerout', () => {
-      if (hoveredStar === s) {
-        hoveredStar = null
-        const tooltip = document.getElementById('tooltip')
-        tooltip.style.display = 'none'
-      }
-    })
-    
-    // Add click handler directly to sprite
-    s.on('click', () => {
-      if (s.txHash && !s.isWarmingUp) {  // Only allow clicks if not warming up
-        window.open(`${BLOCK_EXPLORER}/${s.txHash}`, '_blank')
-      }
-    })
-    
-    active.push(s); stars.addChild(s)
+    active.push(s)
+    stars.addChild(s)
   }
+
+  // Add queue timing tracking
+  let queueStartTime = 0  // When the first transaction in queue was added
+  let lastQueueSize = 0   // Last known queue size for rate calculation
 
   const processQueue = () => {
     const now = Date.now()
-    const queueAge = now - lastSpawnTime
     const queueLength = txQueue.length
 
-    // Calculate how many transactions we should process this frame
-    let spawnCount = 1
-    if (queueLength > 0) {
-      // If queue is getting too long, increase spawn rate
-      const queueTime = queueLength * MIN_SPAWN_INTERVAL
-      if (queueTime > MAX_QUEUE_TIME) {
-        // Calculate how many we need to spawn to maintain 5s queue
-        spawnCount = Math.ceil(queueTime / MAX_QUEUE_TIME)
+    // Initialize queue start time if this is the first transaction
+    if (queueLength > 0 && queueStartTime === 0) {
+      queueStartTime = now
+    }
+
+    // Calculate current TPS and queue time
+    const queueTime = now - queueStartTime
+    const currentTPS = queueLength / (queueTime / 1000)
+
+    // Calculate how many transactions to process this frame
+    let spawnCount = QUEUE_PROCESS_RATE
+
+    // If queue time is less than minimum, still process some transactions
+    if (queueTime < MIN_QUEUE_TIME) {
+      // Calculate how many we need to keep to maintain 5 second buffer
+      const targetQueueSize = Math.floor(currentTPS * (MIN_QUEUE_TIME / 1000))
+      const excess = queueLength - targetQueueSize
+      
+      // Process at least some transactions even if below target
+      if (excess > 0) {
+        // Process excess transactions
+        spawnCount = Math.min(spawnCount, excess)
+      } else {
+        // Process a small amount to keep animation going
+        spawnCount = Math.min(10, queueLength)
       }
+    } else {
+      // Calculate exact number of transactions to process this frame to maintain MAX_TPS
+      const timeSinceLastSpawn = now - lastSpawnTime
+      const maxSpawnThisFrame = Math.floor((MAX_TPS * timeSinceLastSpawn) / 1000)
+      spawnCount = Math.min(MAX_PROCESS_PER_FRAME, maxSpawnThisFrame)
     }
 
     // Spawn the calculated number of transactions
@@ -405,7 +529,18 @@
       txTimes.push(now)
     }
 
+    // Reset queue start time if queue is empty
+    if (queueLength === 0) {
+      queueStartTime = 0
+    }
+
+    // Log queue status periodically
+    if (DEBUG_STAR_COUNT && now - lastCleanupTime >= QUEUE_CLEANUP_INTERVAL) {
+      console.log(`Queue: ${queueLength} tx (${(queueTime/1000).toFixed(1)}s), Processing: ${spawnCount}/frame, True TPS: ${trueTPS.toFixed(1)}, Spawn TPS: ${spawnTPS.toFixed(1)}`)
+    }
+
     lastSpawnTime = now
+    lastQueueSize = queueLength
   }
 
   const recycle=s=>{
@@ -426,13 +561,22 @@
     s.sender = null
     s.amount = null
     s.originalScale = 1
-    s.trail = []
+    s.spawnTime = Date.now()
+    s.isWarmingUp = ENABLE_WARMUP
     s.eventMode = 'none'
     s.interactive = false
     s.hitArea = null
     pool.push(s)
   }
-  const calcTPS=()=>{const n=Date.now();txTimes=txTimes.filter(t=>n-t<TPS_WINDOW);return txTimes.length/(TPS_WINDOW / 1000)}
+  const calcTPS = () => {
+    // Scale spawn TPS based on queue size
+    // When queue is empty, use true TPS
+    // When queue is at 10000, use MAX_TPS
+    // Scale linearly between these points
+    const queueFactor = Math.min(1, txQueue.length / 10000)
+    spawnTPS = trueTPS + (MAX_TPS - trueTPS) * queueFactor
+    return spawnTPS
+  }
 
   /* ========== TICK ========== */
   app.ticker.add(dt=>{
@@ -446,20 +590,18 @@
       processQueue()
     }
 
+    // Force cleanup periodically
+    forceCleanup()
+
     for(let i=active.length-1;i>=0;i--){
       const s=active[i]
       const f = dt * speedMult
-      
-      // Store current position for trail
-      s.trail.unshift({x: s.x, y: s.y})
-      if (s.trail.length > 5) s.trail.pop()  // Keep last 5 positions
       
       s.x += s.dx * f * (1 + Math.pow(s.p, 2) * TUNNEL_MULTIPLIER)
       s.y += s.dy * f * (1 + Math.pow(s.p, 2) * TUNNEL_MULTIPLIER)
       s.p += PROGRESSION_RATE * dt * speedMult
 
       // Check if star is still in warmup period
-      // Helps them gain velocity before they're visible
       const now = Date.now()
       if (s.isWarmingUp) {
         const warmupTime = getWarmupTime(curTPS)
@@ -506,28 +648,33 @@
         
         // Start with increasing opacity in spawn area, then fade in
         const spawnOpacity = 0.1 + (spawnAreaFactor * 0.25) // 0.1 to 0.25 in spawn area
-        s.alpha = spawnOpacity + (easeOutFactor * (MAX_FADE_AMOUNT - spawnOpacity))
+        s.alpha = ENABLE_FADE ? (spawnOpacity + (easeOutFactor * (MAX_FADE_AMOUNT - spawnOpacity))) : 1
         
         // Calculate size scaling - grow from 0 to full size
         const sizeFactor = Math.min(1, distanceFromCenter / maxDistance)
-        const sizeScale = 0.15 + (sizeFactor * 0.9) // Start at 15% size and grow to 100%
+        const sizeScale = ENABLE_SCALING ? (0.15 + (sizeFactor * 0.9)) : 1 // Start at 15% size and grow to 100%
         
         // Apply size scaling
         s.scale.set(s.originalScale * sizeScale)
         
         // Add slight rotation based on movement direction
-        s.rotation = angle + Math.PI/2
+        s.rotation = ENABLE_ROTATION ? (angle + Math.PI/2) : 0
       } else {
-        s.alpha = 0.1  // Start with slight opacity
-        s.scale.set(s.originalScale * 0.15)  // Start at 15% size
+        s.alpha = ENABLE_FADE ? 0.1 : 1  // Start with slight opacity
+        s.scale.set(s.originalScale * (ENABLE_SCALING ? 0.15 : 1))  // Start at 15% size
         s.rotation = 0
       }
 
       // Only remove stars when they're completely off screen
-      if(s.x<-SCREEN_MARGIN||s.x>app.renderer.width+SCREEN_MARGIN||s.y<-SCREEN_MARGIN||s.y>app.renderer.height+SCREEN_MARGIN){active.splice(i,1);recycle(s)}
+      if(s.x<-SCREEN_MARGIN||s.x>app.renderer.width+SCREEN_MARGIN||s.y<-SCREEN_MARGIN||s.y>app.renderer.height+SCREEN_MARGIN){
+        active.splice(i,1)
+        recycle(s)
+        logStarCounts()
+      }
     }
 
-    document.getElementById('tps').setAttribute('data-value', Math.round(curTPS))
+    // Update UI with precise TPS (10s rolling average)
+    document.getElementById('tps').setAttribute('data-value', trueTPS.toFixed(0))
     document.getElementById('volume').setAttribute('data-value', `${Math.round(volume).toLocaleString('en-US')} S`)
   })
 
@@ -552,8 +699,8 @@
       }
     }
 
-    // Fixed polling interval of 600ms is appropriate since blocks come every ~2 seconds
-    setTimeout(poll, 600);
+    // Use configurable polling interval
+    setTimeout(poll, POLL_INTERVAL);
   }
 
   poll();
