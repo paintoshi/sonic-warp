@@ -32,16 +32,25 @@
   <meta property="og:url" content="https://warp.paintoshi.dev" />
 </head>
 <body>
-  <a id="about" href="#" title="About">?</a>
-  <a id="pause" href="#" title="Pause">
-    <svg class="pause-icon" viewBox="0 0 24 24">
-      <rect x="6" y="4" width="4" height="16" rx="1"/>
-      <rect x="14" y="4" width="4" height="16" rx="1"/>
-    </svg>
-    <svg class="play-icon" viewBox="0 0 24 24" style="display: none;">
-      <path d="M8 5v14l11-7z"/>
-    </svg>
-  </a>
+  <div id="controls">
+    <a id="mode-toggle" href="#" title="Switch RPC">
+      <span class="mode-live">LIVE</span>
+      <span class="separator">|</span>
+      <span class="mode-blaze">BLAZE</span>
+    </a>
+
+    <a id="pause" href="#" title="Pause">
+      <svg class="pause-icon" viewBox="0 0 24 24">
+        <rect x="6" y="4" width="4" height="16" rx="1"/>
+        <rect x="14" y="4" width="4" height="16" rx="1"/>
+      </svg>
+      <svg class="play-icon" viewBox="0 0 24 24" style="display:none">
+        <path d="M8 5v14l11-7z"/>
+      </svg>
+    </a>
+
+    <a id="about" href="#" title="About">?</a>
+  </div>
   <div id="tooltip"></div>
   <div id="panel">
     <div>
@@ -67,9 +76,13 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.8/browser/pixi.min.js"></script>
   <script>
   /* ========== TUNABLE PARAMETERS ========== */
-  const RPC_URL = 'https://rpc.soniclabs.com'
-  // const RPC_URL = 'http://localhost:3000'
-  const BLOCK_EXPLORER = 'https://sonicscan.org/tx'
+  const LIVE_RPC = 'https://rpc.soniclabs.com'
+  const TESTNET_RPC = 'https://rpc.blaze.soniclabs.com'
+  // const TESTNET_RPC = 'http://localhost:3000'
+  let RPC_URL = localStorage.getItem('rpcMode') === 'blaze' ? TESTNET_RPC : LIVE_RPC
+  const BLOCK_EXPLORER_LIVE = 'https://sonicscan.org/tx'
+  const BLOCK_EXPLORER_TESTNET = 'https://testnet.sonicscan.org/tx'
+  let BLOCK_EXPLORER = localStorage.getItem('rpcMode') === 'blaze' ? BLOCK_EXPLORER_TESTNET : BLOCK_EXPLORER_LIVE
 
   // Feature flags
   const ENABLE_TOOLTIPS = true      // Enable tooltips and click events
@@ -144,8 +157,8 @@
   const TPS_SAMPLE_SIZE = 10000  // Maximum number of timestamps to store
 
   /* ========== HELPERS ========== */
-  let pendingRequest = null;
-  const processedBlockHashes = new Set();
+  let pendingRequest = null
+  const processedBlockHashes = new Set()
 
   const fetchRPC = async (method, params = []) => {
     const response = await fetch(RPC_URL, {
@@ -157,18 +170,18 @@
         method,
         params
       })
-    });
+    })
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new Error(`HTTP error! status: ${response.status}`)
     }
 
-    const data = await response.json();
+    const data = await response.json()
     if (data.error) {
-      throw new Error(`RPC error: ${data.error.message}`);
+      throw new Error(`RPC error: ${data.error.message}`)
     }
 
-    return data.result;
+    return data.result
   }
 
   // Add RPC TPS tracking
@@ -180,54 +193,54 @@
 
   const getLatestBlocksAndTransactions = async () => {
     if (pendingRequest || !ENABLE_RPC_POLLING) {
-      return null;
+      return null
     }
     
     try {
-      pendingRequest = true;
+      pendingRequest = true
       
       // First get block number
-      const latest = parseInt(await fetchRPC('eth_blockNumber'), 16);
+      const latest = parseInt(await fetchRPC('eth_blockNumber'), 16)
       
       // Limit number of blocks to process
-      const blocksToFetch = Math.min(MAX_BLOCKS_PER_POLL, 4);
-      const batch = [];
+      const blocksToFetch = Math.min(MAX_BLOCKS_PER_POLL, 4)
+      const batch = []
       for (let i = 0; i < blocksToFetch; i++) {
         batch.push({
           jsonrpc: '2.0',
           id: i,
           method: 'eth_getBlockByNumber',
           params: [`0x${(latest - i).toString(16)}`, true]
-        });
+        })
       }
 
       const res = await fetch(RPC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(batch)
-      });
+      })
 
       if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
+        throw new Error(`HTTP error! status: ${res.status}`)
       }
 
-      const arr = await res.json();
-      const newTransactions = [];
-      let lastProcessedBlock = latest;
+      const arr = await res.json()
+      const newTransactions = []
+      let lastProcessedBlock = latest
 
       for (const r of arr) {
-        const blk = r.result;
-        if (!blk || processedBlockHashes.has(blk.hash)) continue;
+        const blk = r.result
+        if (!blk || processedBlockHashes.has(blk.hash)) continue
 
-        const blockNumber = parseInt(blk.number, 16);
+        const blockNumber = parseInt(blk.number, 16)
         // Ensure we process blocks in order
-        if (blockNumber > lastProcessedBlock) continue;
-        lastProcessedBlock = blockNumber;
+        if (blockNumber > lastProcessedBlock) continue
+        lastProcessedBlock = blockNumber
 
-        processedBlockHashes.add(blk.hash);
+        processedBlockHashes.add(blk.hash)
         if (processedBlockHashes.size > 50) { 
-          const oldestHash = processedBlockHashes.values().next().value;
-          processedBlockHashes.delete(oldestHash);
+          const oldestHash = processedBlockHashes.values().next().value
+          processedBlockHashes.delete(oldestHash)
         }
 
         if (ENABLE_TX_PROCESSING) {
@@ -244,14 +257,14 @@
           }
           
           for (const tx of blk.transactions || []) {
-            const amt = parseInt(tx.value, 16) / 1e18;
+            const amt = parseInt(tx.value, 16) / 1e18
             newTransactions.push({
               hash: tx.hash,
               amount: amt,
               sender: tx.from,
               blockHash: blk.hash,
               blockNumber: blockNumber
-            });
+            })
           }
         }
       }
@@ -270,13 +283,13 @@
         lastTrueTPSUpdate = now
       }
 
-      return newTransactions.length > 0 ? newTransactions : null;
+      return newTransactions.length > 0 ? newTransactions : null
 
     } catch (e) {
-      console.error('Error fetching blockchain data:', e);
-      return null;
+      console.error('Error fetching blockchain data:', e)
+      return null
     } finally {
-      pendingRequest = null;
+      pendingRequest = null
     }
   }
 
@@ -292,17 +305,17 @@
 
   // Create different sized star textures
   const createStarTexture = (radius, color) => {
-    const g = new PIXI.Graphics();
-    g.beginFill(color);
-    g.drawCircle(0, 0, radius);
-    g.endFill();
+    const g = new PIXI.Graphics()
+    g.beginFill(color)
+    g.drawCircle(0, 0, radius)
+    g.endFill()
     const texture = app.renderer.generateTexture(g, {
       resolution: ENABLE_HIGH_RES ? 2 : 1,  // Higher resolution for smoother circles
       scaleMode: PIXI.SCALE_MODES.LINEAR,  // Better scaling
       multisample: PIXI.MSAA_QUALITY.HIGH  // Better antialiasing
-    });
-    g.destroy();  // Clean up the graphics object
-    return texture;
+    })
+    g.destroy()  // Clean up the graphics object
+    return texture
   }
 
   // Create textures for each size and color combination
@@ -580,7 +593,7 @@
 
   /* ========== TICK ========== */
   app.ticker.add(dt=>{
-    if (isPaused) return;
+    if (isPaused) return
     
     const curTPS = calcTPS()
     const speedMult = Math.max(1, SPEED_K * Math.pow(curTPS, getSpeedExponent(curTPS)))
@@ -679,12 +692,12 @@
   })
 
   /* ========== POLL ========== */
-  let isPolling = true;
+  let isPolling = true
 
   const poll = async () => {
-    if (!isPolling) return;
+    if (!isPolling) return
 
-    const transactions = await getLatestBlocksAndTransactions();
+    const transactions = await getLatestBlocksAndTransactions()
     if (transactions) {
       if (USE_QUEUE) {
         // Add transactions to queue
@@ -692,28 +705,36 @@
       } else {
         // Spawn immediately (old behavior)
         for (const tx of transactions) {
-          spawn(tx);
-          volume += tx.amount;
-          txTimes.push(Date.now());
+          spawn(tx)
+          volume += tx.amount
+          txTimes.push(Date.now())
         }
       }
     }
 
     // Use configurable polling interval
-    setTimeout(poll, POLL_INTERVAL);
+    setTimeout(poll, POLL_INTERVAL)
   }
 
-  poll();
+  poll()
 
   // Cleanup function for when needed
   const stopPolling = () => {
-    isPolling = false;
+    isPolling = false
   }
 
   /* ========== PANEL ========== */
   const aboutBtn=document.getElementById('about'),panel=document.getElementById('panel'),closeBtn=document.getElementById('close-button')
   const pauseBtn=document.getElementById('pause')
-  aboutBtn.onclick=e=>{e.preventDefault();panel.classList.add('show')}
+  aboutBtn.onclick=e=>{
+    e.preventDefault()
+
+    if (panel.classList.contains('show')){
+      panel.classList.remove('show')
+    } else {
+      panel.classList.add('show')
+    }
+  }
   closeBtn.onclick=()=>panel.classList.remove('show')
   pauseBtn.onclick=e=>{
     e.preventDefault()
@@ -723,6 +744,54 @@
     pauseIcon.style.display = isPaused ? 'none' : 'block'
     playIcon.style.display = isPaused ? 'block' : 'none'
     pauseBtn.title = isPaused ? 'Resume' : 'Pause'
+  }
+
+  /* ========== RPC‑MODE TOGGLE ========== */
+  const modeToggle = document.getElementById('mode-toggle')
+  let isLiveMode = localStorage.getItem('rpcMode') !== 'blaze' // Default to live if not set
+
+  const updateModeButton = () =>{
+    if(isLiveMode){
+      modeToggle.classList.add('live')
+      modeToggle.classList.remove('blaze')
+    }else{
+      modeToggle.classList.add('blaze')
+      modeToggle.classList.remove('live')
+    }
+  }
+
+  // Set initial mode
+  updateModeButton()
+
+  modeToggle.onclick = e =>{
+    e.preventDefault()
+    isLiveMode = !isLiveMode
+    RPC_URL = isLiveMode
+      ? LIVE_RPC
+      : TESTNET_RPC
+    BLOCK_EXPLORER = isLiveMode
+      ? BLOCK_EXPLORER_LIVE
+      : BLOCK_EXPLORER_TESTNET
+
+    // Save choice to local storage
+    localStorage.setItem('rpcMode', isLiveMode ? 'live' : 'blaze')
+
+    /* clear state */
+    processedBlockHashes.clear()
+    txQueue.length = 0
+
+    /* --- reset stats --- */
+    volume = 0
+    rpcTxTimes.length = 0
+    txTimes.length = 0
+    trueTPS = 0
+    lastTrueTPSUpdate = Date.now()
+
+    /* update UI immediately */
+    document.getElementById('tps').setAttribute('data-value', 0)
+    document.getElementById('volume').setAttribute('data-value', '0 S')
+
+    updateModeButton()
   }
   </script>
 </body>
