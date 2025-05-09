@@ -5,6 +5,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const customTPS = 1000
+// Set to false to use ramp up function
+const useCustomTPS = true
+
 // Gradually increase TPS from 0 to 10000 over 60 seconds with slower initial ramp-up
 let currentTPS = 0;
 const targetTPS = 2500;
@@ -24,8 +28,7 @@ setInterval(() => {
     } else {
         currentTPS = targetTPS;
     }
-    currentTPS = currentTPS
-    currentTPS = 500 // Comment out this to use ramp up function
+    currentTPS = useCustomTPS ? customTPS : currentTPS
 }, 100);
 
 // Configuration
