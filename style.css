@@ -39,6 +39,8 @@ body {
 #panel > div {
   background: rgba(1, 11, 21, 0.2);
   padding: 70px;
+  padding-top: 90px;
+  padding-bottom: 60px;
   border-radius: 8px;
   max-width: 512px;
   width: calc(100% - 64px);
@@ -60,6 +62,10 @@ body {
   background-repeat: no-repeat;
   opacity: 0.2;
   z-index: -1;
+}
+
+body.monad-mode #panel > div::before {
+  background-image: url('monad.svg');
 }
 
 #stats {
@@ -86,6 +92,10 @@ body {
   background-size: contain;
   background-position: center;
   background-repeat: no-repeat;
+}
+
+body.monad-mode #stats::before {
+  background-image: url('monad.svg');
 }
 
 #stats > div {
@@ -200,8 +210,8 @@ canvas {
 }
 
 #mode-toggle .separator{opacity:.6}
-#mode-toggle.live   .mode-live,
-#mode-toggle.blaze  .mode-blaze{
+#mode-toggle.sonic   .mode-sonic,
+#mode-toggle.monad  .mode-monad{
   background: #fff;
   color: #010b15;
   border-radius: 8px;

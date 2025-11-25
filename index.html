@@ -34,9 +34,9 @@
 <body>
   <div id="controls">
     <a id="mode-toggle" href="#" title="Switch RPC">
-      <span class="mode-live">LIVE</span>
+      <span class="mode-sonic">SONIC</span>
       <span class="separator">|</span>
-      <span class="mode-blaze">BLAZE</span>
+      <span class="mode-monad">MONAD</span>
     </a>
 
     <a id="pause" href="#" title="Pause">
@@ -54,14 +54,14 @@
   <div id="tooltip"></div>
   <div id="panel">
     <div>
-      <h1>Sonic Warp</h1><br>
-      <p>Transactions stream live from the Sonic network via RPC and rendered as stars.<br>
+      <h1>Blockchain Warp</h1><br>
+      <p><span id="help-network">Transactions stream live from a blockchain network</span> via RPC and rendered as stars.<br>
         Star color based on amounts:<br><br>
-        White: 0 S<br/>
-        Red: 0 - 1 S<br/>
-        Purple: 1 - 1,000 S<br/>
-        Blue: 1,000 - 100,000 S<br/>
-        Green: > 100,000 S<br/><br/>
+        <span id="help-white">White: 0 S</span><br/>
+        <span id="help-red">Red: 0 - 1 S</span><br/>
+        <span id="help-purple">Purple: 1 - 1,000 S</span><br/>
+        <span id="help-blue">Blue: 1,000 - 100,000 S</span><br/>
+        <span id="help-green">Green: > 100,000 S</span><br/><br/>
       </p>
       <p><a href="https://github.com/paintoshi/sonic-warp" target="_blank">Github Source</a></p><br/>
       <a id="close-button">Close</a>
@@ -69,20 +69,19 @@
   </div>
   <div id="stats">
     <div id="tps" data-value="0"></div>
-    <div id="volume" data-value="0 S"></div>
+    <div id="volume" data-value="0"></div>
   </div>
 
   <!-- PixiJS v6.5.8 – synchronous API -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.8/browser/pixi.min.js"></script>
   <script>
   /* ========== TUNABLE PARAMETERS ========== */
-  const LIVE_RPC = 'https://rpc.soniclabs.com'
-  const TESTNET_RPC = 'https://rpc.blaze.soniclabs.com'
-  // const TESTNET_RPC = 'http://localhost:3000'
-  let RPC_URL = localStorage.getItem('rpcMode') === 'blaze' ? TESTNET_RPC : LIVE_RPC
-  const BLOCK_EXPLORER_LIVE = 'https://sonicscan.org/tx'
-  const BLOCK_EXPLORER_TESTNET = 'https://testnet.sonicscan.org/tx'
-  let BLOCK_EXPLORER = localStorage.getItem('rpcMode') === 'blaze' ? BLOCK_EXPLORER_TESTNET : BLOCK_EXPLORER_LIVE
+  const SONIC_RPC = 'https://rpc.soniclabs.com'
+  const MONAD_RPC = 'https://rpc.monad.xyz'
+  let RPC_URL = localStorage.getItem('network') === 'monad' ? MONAD_RPC : SONIC_RPC
+  const BLOCK_EXPLORER_SONIC = 'https://sonicscan.org/tx'
+  const BLOCK_EXPLORER_MONAD = 'https://monadscan.com/tx'
+  let BLOCK_EXPLORER = localStorage.getItem('network') === 'monad' ? BLOCK_EXPLORER_MONAD : BLOCK_EXPLORER_SONIC
 
   // Feature flags
   const ENABLE_TOOLTIPS = true      // Enable tooltips and click events
@@ -468,7 +467,7 @@
         if (!s.isWarmingUp) {
           hoveredStar = s
           const tooltip = document.getElementById('tooltip')
-          tooltip.textContent = `Amount: ${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} S\nFrom: ${sender.slice(0, 6)}...${sender.slice(-4)}`
+          tooltip.textContent = `Amount: ${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${getTicker()}\nFrom: ${sender.slice(0, 6)}...${sender.slice(-4)}`
           tooltip.style.display = 'block'
           updateTooltip(s)
         }
@@ -688,7 +687,7 @@
 
     // Update UI with precise TPS (10s rolling average)
     document.getElementById('tps').setAttribute('data-value', trueTPS.toFixed(0))
-    document.getElementById('volume').setAttribute('data-value', `${Math.round(volume).toLocaleString('en-US')} S`)
+    document.getElementById('volume').setAttribute('data-value', `${Math.round(volume).toLocaleString('en-US')} ${getTicker()}`)
   })
 
   /* ========== POLL ========== */
@@ -748,33 +747,58 @@
 
   /* ========== RPC‑MODE TOGGLE ========== */
   const modeToggle = document.getElementById('mode-toggle')
-  let isLiveMode = localStorage.getItem('rpcMode') !== 'blaze' // Default to live if not set
+  let isSonicMode = localStorage.getItem('network') !== 'monad' // Default to sonic if not set
+
+  /* ========== TICKER SYMBOL ========== */
+  const getTicker = () => isSonicMode ? 'S' : 'MON'
+
+  const updateHelpPopup = () => {
+    const ticker = getTicker()
+    const networkName = isSonicMode ? 'Sonic' : 'Monad'
+    document.getElementById('help-network').textContent = `Transactions stream live from the ${networkName} network`
+    document.getElementById('help-white').textContent = `White: 0 ${ticker}`
+    document.getElementById('help-red').textContent = `Red: 0 - 1 ${ticker}`
+    document.getElementById('help-purple').textContent = `Purple: 1 - 1,000 ${ticker}`
+    document.getElementById('help-blue').textContent = `Blue: 1,000 - 100,000 ${ticker}`
+    document.getElementById('help-green').textContent = `Green: > 100,000 ${ticker}`
+  }
 
   const updateModeButton = () =>{
-    if(isLiveMode){
-      modeToggle.classList.add('live')
-      modeToggle.classList.remove('blaze')
+    if(isSonicMode){
+      modeToggle.classList.add('sonic')
+      modeToggle.classList.remove('monad')
+      document.body.classList.remove('monad-mode')
     }else{
-      modeToggle.classList.add('blaze')
-      modeToggle.classList.remove('live')
+      modeToggle.classList.add('monad')
+      modeToggle.classList.remove('sonic')
+      document.body.classList.add('monad-mode')
     }
+    updateHelpPopup()
   }
 
   // Set initial mode
   updateModeButton()
+  // Initialize help popup with correct ticker
+  updateHelpPopup()
+  // Initialize volume display
+  document.getElementById('volume').setAttribute('data-value', `0 ${getTicker()}`)
+  // Set initial body class based on mode
+  if (!isSonicMode) {
+    document.body.classList.add('monad-mode')
+  }
 
   modeToggle.onclick = e =>{
     e.preventDefault()
-    isLiveMode = !isLiveMode
-    RPC_URL = isLiveMode
-      ? LIVE_RPC
-      : TESTNET_RPC
-    BLOCK_EXPLORER = isLiveMode
-      ? BLOCK_EXPLORER_LIVE
-      : BLOCK_EXPLORER_TESTNET
+    isSonicMode = !isSonicMode
+    RPC_URL = isSonicMode
+      ? SONIC_RPC
+      : MONAD_RPC
+    BLOCK_EXPLORER = isSonicMode
+      ? BLOCK_EXPLORER_SONIC
+      : BLOCK_EXPLORER_MONAD
 
     // Save choice to local storage
-    localStorage.setItem('rpcMode', isLiveMode ? 'live' : 'blaze')
+    localStorage.setItem('network', isSonicMode ? 'sonic' : 'monad')
 
     /* clear state */
     processedBlockHashes.clear()
@@ -789,9 +813,10 @@
 
     /* update UI immediately */
     document.getElementById('tps').setAttribute('data-value', 0)
-    document.getElementById('volume').setAttribute('data-value', '0 S')
+    document.getElementById('volume').setAttribute('data-value', `0 ${getTicker()}`)
 
     updateModeButton()
+    updateHelpPopup()
   }
   </script>
 </body>
