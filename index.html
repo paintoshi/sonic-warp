@@ -3,7 +3,7 @@
 <head>
   <title>EVM Warp - Transaction Visualizer</title>
   <meta name="description" content="A transaction starfield visualizer for different EVM blockchains"/>
-  <meta name="keywords" content="sonic, monad, blockchain, transaction, visualizer, network, tps, volume, tx, crypto, simulation"/>
+  <meta name="keywords" content="sonic, robinhood, blockchain, transaction, visualizer, network, tps, volume, tx, crypto, simulation"/>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
   <link rel="stylesheet" href="style.css?v=1.0.1">
@@ -36,7 +36,7 @@
     <a id="mode-toggle" href="#" title="Switch RPC">
       <span class="mode-sonic">SONIC</span>
       <span class="separator">|</span>
-      <span class="mode-monad">MONAD</span>
+      <span class="mode-robinhood">ROBINHOOD</span>
     </a>
 
     <a id="pause" href="#" title="Pause">
@@ -77,11 +77,11 @@
   <script>
   /* ========== TUNABLE PARAMETERS ========== */
   const SONIC_RPC = 'https://rpc.soniclabs.com'
-  const MONAD_RPC = 'https://rpc.monad.xyz'
-  let RPC_URL = localStorage.getItem('network') === 'monad' ? MONAD_RPC : SONIC_RPC
+  const ROBINHOOD_RPC = 'https://rpc.mainnet.chain.robinhood.com'
+  let RPC_URL = localStorage.getItem('network') === 'robinhood' ? ROBINHOOD_RPC : SONIC_RPC
   const BLOCK_EXPLORER_SONIC = 'https://sonicscan.org/tx'
-  const BLOCK_EXPLORER_MONAD = 'https://monadscan.com/tx'
-  let BLOCK_EXPLORER = localStorage.getItem('network') === 'monad' ? BLOCK_EXPLORER_MONAD : BLOCK_EXPLORER_SONIC
+  const BLOCK_EXPLORER_ROBINHOOD = 'https://robinhoodchain.blockscout.com/tx'
+  let BLOCK_EXPLORER = localStorage.getItem('network') === 'robinhood' ? BLOCK_EXPLORER_ROBINHOOD : BLOCK_EXPLORER_SONIC
 
   // Feature flags
   const ENABLE_TOOLTIPS = true      // Enable tooltips and click events
@@ -747,14 +747,14 @@
 
   /* ========== RPC‑MODE TOGGLE ========== */
   const modeToggle = document.getElementById('mode-toggle')
-  let isSonicMode = localStorage.getItem('network') !== 'monad' // Default to sonic if not set
+  let isSonicMode = localStorage.getItem('network') !== 'robinhood' // Default to sonic if not set
 
   /* ========== TICKER SYMBOL ========== */
-  const getTicker = () => isSonicMode ? 'S' : 'MON'
+  const getTicker = () => isSonicMode ? 'S' : 'ETH'
 
   const updateHelpPopup = () => {
     const ticker = getTicker()
-    const networkName = isSonicMode ? 'Sonic' : 'Monad'
+    const networkName = isSonicMode ? 'Sonic' : 'Robinhood Chain'
     document.getElementById('help-network').textContent = `Transactions stream live from the ${networkName} network`
     document.getElementById('help-white').textContent = `White: 0 ${ticker}`
     document.getElementById('help-red').textContent = `Red: 0 - 1 ${ticker}`
@@ -766,12 +766,12 @@
   const updateModeButton = () =>{
     if(isSonicMode){
       modeToggle.classList.add('sonic')
-      modeToggle.classList.remove('monad')
-      document.body.classList.remove('monad-mode')
+      modeToggle.classList.remove('robinhood')
+      document.body.classList.remove('robinhood-mode')
     }else{
-      modeToggle.classList.add('monad')
+      modeToggle.classList.add('robinhood')
       modeToggle.classList.remove('sonic')
-      document.body.classList.add('monad-mode')
+      document.body.classList.add('robinhood-mode')
     }
     updateHelpPopup()
   }
@@ -784,7 +784,7 @@
   document.getElementById('volume').setAttribute('data-value', `0 ${getTicker()}`)
   // Set initial body class based on mode
   if (!isSonicMode) {
-    document.body.classList.add('monad-mode')
+    document.body.classList.add('robinhood-mode')
   }
 
   modeToggle.onclick = e =>{
@@ -792,13 +792,13 @@
     isSonicMode = !isSonicMode
     RPC_URL = isSonicMode
       ? SONIC_RPC
-      : MONAD_RPC
+      : ROBINHOOD_RPC
     BLOCK_EXPLORER = isSonicMode
       ? BLOCK_EXPLORER_SONIC
-      : BLOCK_EXPLORER_MONAD
+      : BLOCK_EXPLORER_ROBINHOOD
 
     // Save choice to local storage
-    localStorage.setItem('network', isSonicMode ? 'sonic' : 'monad')
+    localStorage.setItem('network', isSonicMode ? 'sonic' : 'robinhood')
 
     /* clear state */
     processedBlockHashes.clear()

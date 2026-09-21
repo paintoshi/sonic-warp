@@ -64,8 +64,8 @@ body {
   z-index: -1;
 }
 
-body.monad-mode #panel > div::before {
-  background-image: url('monad.svg');
+body.robinhood-mode #panel > div::before {
+  background-image: url('robinhood.svg');
 }
 
 #stats {
@@ -94,8 +94,8 @@ body.monad-mode #panel > div::before {
   background-repeat: no-repeat;
 }
 
-body.monad-mode #stats::before {
-  background-image: url('monad.svg');
+body.robinhood-mode #stats::before {
+  background-image: url('robinhood.svg');
 }
 
 #stats > div {
@@ -211,7 +211,7 @@ canvas {
 
 #mode-toggle .separator{opacity:.6}
 #mode-toggle.sonic   .mode-sonic,
-#mode-toggle.monad  .mode-monad{
+#mode-toggle.robinhood  .mode-robinhood{
   background: #fff;
   color: #010b15;
   border-radius: 8px;
